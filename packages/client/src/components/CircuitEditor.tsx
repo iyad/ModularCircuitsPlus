@@ -63,7 +63,9 @@ function defToFlow(def: CircuitDefinition, allDefs: Record<string, CircuitDefini
     nodes.push({
       id: comp.id,
       type: "gate",
-      position: { x: gateStartX + (i % cols) * gateSpacingX, y: gateStartY + Math.floor(i / cols) * gateSpacingY },
+      position:
+        comp.position ??
+        ({ x: gateStartX + (i % cols) * gateSpacingX, y: gateStartY + Math.floor(i / cols) * gateSpacingY } as const),
       data: {
         label: comp.label ?? typeLabel,
         componentType: comp.type,
@@ -100,6 +102,7 @@ function flowToDefinition(
       id: n.id,
       type: (n.data as any).componentType as string,
       label: (n.data as any).label as string,
+      position: n.position as { x: number; y: number },
     }));
 
   const wires: Wire[] = edges.map((e) => ({
