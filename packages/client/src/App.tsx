@@ -262,6 +262,7 @@ function App() {
             <div style={{ flex: 1, overflow: "hidden" }}>
               {tab === "editor" ? (
                 <CircuitEditor
+                  key={selected.id}
                   circuit={selected}
                   savedCircuits={circuits}
                   allDefinitions={allDefs}

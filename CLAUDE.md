@@ -53,6 +53,9 @@ CircuitDefinition {
 - State keys are hierarchically namespaced: `"compId.pinName"` for this level, `"compId/subCompId.pinName"` for one level deeper. This allows arbitrarily deep sequential circuits to persist memory across calls.
 - Primitives bottom out in `evalPrimitive` which directly computes NAND/XOR boolean logic.
 
+
+
+
 **Important simulation behaviour:**
 - Level-triggered feedback circuits (e.g. a raw T flip-flop) will oscillate when their enable input is high; after 64 iterations they settle at an arbitrary value. Use master-slave configurations to avoid this.
 - A circuit that hasn't been run before has no saved state. The first simulation of a latch in hold mode is indeterminate — always seed with a write cycle before relying on hold behaviour.

@@ -25,6 +25,8 @@ export interface CircuitDefinition {
   outputs: string[];
   components: ComponentInstance[];
   wires: Wire[];
+  inputPosition?: { x: number; y: number };
+  outputPosition?: { x: number; y: number };
 }
 
 export interface SimulationResult {

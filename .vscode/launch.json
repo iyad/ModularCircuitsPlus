@@ -1,0 +1,40 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Server (debug)",
+      "type": "node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}/packages/server",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "${workspaceFolder}/packages/server/node_modules/tsx/dist/cli.mjs",
+        "watch",
+        "src/index.ts"
+      ],
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen",
+      "skipFiles": ["<node_internals>/**"],
+      "resolveSourceMapLocations": [
+        "${workspaceFolder}/packages/**",
+        "!**/node_modules/**"
+      ]
+    },
+    {
+      "name": "Client (Chrome)",
+      "type": "chrome",
+      "request": "launch",
+      "url": "http://localhost:5173",
+      "webRoot": "${workspaceFolder}/packages/client",
+      "sourceMaps": true
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Server + Client",
+      "configurations": ["Server (debug)", "Client (Chrome)"],
+      "preLaunchTask": "client:dev",
+      "stopAll": true
+    }
+  ]
+}

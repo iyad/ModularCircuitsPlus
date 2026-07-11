@@ -9,6 +9,7 @@ import {
   useNodesState,
   useEdgesState,
   BackgroundVariant,
+  MarkerType,
   type Connection,
   type Edge,
   type Node,
@@ -46,14 +47,14 @@ function defToFlow(def: CircuitDefinition, allDefs: Record<string, CircuitDefini
   nodes.push({
     id: "input",
     type: "io",
-    position: { x: 40, y: centerY },
+    position: def.inputPosition ?? { x: 40, y: centerY },
     data: { label: "INPUTS", kind: "input", pins: def.inputs } satisfies IONodeData,
   });
 
   nodes.push({
     id: "output",
     type: "io",
-    position: { x: gateStartX + totalWidth + 160, y: centerY },
+    position: def.outputPosition ?? { x: gateStartX + totalWidth + 160, y: centerY },
     data: { label: "OUTPUTS", kind: "output", pins: def.outputs } satisfies IONodeData,
   });
 
@@ -84,6 +85,7 @@ function defToFlow(def: CircuitDefinition, allDefs: Record<string, CircuitDefini
       target: wire.to.componentId,
       targetHandle: wire.to.pinName,
       style: { stroke: "#60a5fa" },
+      markerEnd: { type: MarkerType.ArrowClosed, color: "#60a5fa" },
     });
   });
 
@@ -95,7 +97,7 @@ function flowToDefinition(
   edges: Edge[],
   inputs: string[],
   outputs: string[]
-): Pick<CircuitDefinition, "components" | "wires" | "inputs" | "outputs"> {
+): Pick<CircuitDefinition, "components" | "wires" | "inputs" | "outputs" | "inputPosition" | "outputPosition"> {
   const components: ComponentInstance[] = nodes
     .filter((n) => n.type === "gate")
     .map((n) => ({
@@ -110,14 +112,16 @@ function flowToDefinition(
     to: { componentId: e.target, pinName: e.targetHandle ?? "in" },
   }));
 
-  return { components, wires, inputs, outputs };
+  const inputPosition = nodes.find((n) => n.id === "input")?.position;
+  const outputPosition = nodes.find((n) => n.id === "output")?.position;
+
+  return { components, wires, inputs, outputs, inputPosition, outputPosition };
 }
 
 export function CircuitEditor({ circuit, savedCircuits, allDefinitions, onSave }: Props) {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
-  const [inputs] = useState<string[]>(circuit.inputs);
-  const [outputs] = useState<string[]>(circuit.outputs);
+  const [showJson, setShowJson] = useState(false);
 
   useEffect(() => {
     const { nodes: n, edges: e } = defToFlow(circuit, allDefinitions);
@@ -127,7 +131,16 @@ export function CircuitEditor({ circuit, savedCircuits, allDefinitions, onSave }
 
   const onConnect = useCallback(
     (connection: Connection) =>
-      setEdges((eds) => addEdge({ ...connection, style: { stroke: "#60a5fa" } }, eds)),
+      setEdges((eds) =>
+        addEdge(
+          {
+            ...connection,
+            style: { stroke: "#60a5fa" },
+            markerEnd: { type: MarkerType.ArrowClosed, color: "#60a5fa" },
+          },
+          eds
+        )
+      ),
     [setEdges]
   );
 
@@ -165,7 +178,7 @@ export function CircuitEditor({ circuit, savedCircuits, allDefinitions, onSave }
   };
 
   const handleSave = () => {
-    const def = flowToDefinition(nodes, edges, inputs, outputs);
+    const def = flowToDefinition(nodes, edges, circuit.inputs, circuit.outputs);
     onSave({ ...def, name: circuit.name, description: circuit.description });
   };
 
@@ -202,6 +215,19 @@ export function CircuitEditor({ circuit, savedCircuits, allDefinitions, onSave }
         ))}
         <div style={{ flex: 1 }} />
         <button
+          onClick={() => setShowJson((v) => !v)}
+          style={{
+            background: showJson ? "#334155" : "#1e293b",
+            color: "#fff",
+            border: "1px solid #475569",
+            borderRadius: 4,
+            padding: "4px 16px",
+            cursor: "pointer",
+          }}
+        >
+          {showJson ? "Hide JSON" : "View JSON"}
+        </button>
+        <button
           onClick={handleSave}
           style={{
             background: "#166534",
@@ -216,23 +242,48 @@ export function CircuitEditor({ circuit, savedCircuits, allDefinitions, onSave }
           Save Circuit
         </button>
       </div>
-      <div style={{ flex: 1 }}>
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onConnect={onConnect}
-          onReconnect={onReconnect}
-          nodeTypes={nodeTypes}
-          deleteKeyCode="Delete"
-          fitView
-          style={{ background: "#020617" }}
-        >
-          <Background variant={BackgroundVariant.Dots} color="#1e293b" />
-          <Controls style={{ background: "#1e293b" }} />
-          <MiniMap style={{ background: "#0f172a" }} nodeColor="#1e3a8a" />
-        </ReactFlow>
+      <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
+        <div style={{ flex: 1 }}>
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onConnect={onConnect}
+            onReconnect={onReconnect}
+            nodeTypes={nodeTypes}
+            deleteKeyCode="Delete"
+            fitView
+            style={{ background: "#020617" }}
+          >
+            <Background variant={BackgroundVariant.Dots} color="#1e293b" />
+            <Controls style={{ background: "#1e293b" }} />
+            <MiniMap style={{ background: "#0f172a" }} nodeColor="#1e3a8a" />
+          </ReactFlow>
+        </div>
+        {showJson && (
+          <pre
+            style={{
+              width: 420,
+              flexShrink: 0,
+              margin: 0,
+              padding: 12,
+              overflow: "auto",
+              background: "#0f172a",
+              color: "#a5f3fc",
+              fontSize: 11,
+              borderLeft: "1px solid #1e293b",
+              whiteSpace: "pre-wrap",
+              wordBreak: "break-word",
+            }}
+          >
+            {JSON.stringify(
+              { ...flowToDefinition(nodes, edges, circuit.inputs, circuit.outputs), id: circuit.id, name: circuit.name },
+              null,
+              2
+            )}
+          </pre>
+        )}
       </div>
     </div>
   );
