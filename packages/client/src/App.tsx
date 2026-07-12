@@ -18,8 +18,9 @@ function App() {
   });
   const [showNew, setShowNew] = useState(false);
   const [tab, setTab] = useState<"editor" | "simulator">("editor");
-  const [showCpu, setShowCpu] = useState(false);
-  const [showCommodore, setShowCommodore] = useState(false);
+  const [view, setView] = useState<"home" | "circuits" | "cpu" | "commodore">(
+    "home"
+  );
 
   const loadCircuits = async () => {
     const list = await api.listCircuits();
@@ -42,8 +43,7 @@ function App() {
     const full = await api.getCircuit(id);
     setSelected({ ...full.definition, name: full.name });
     setTab("editor");
-    setShowCpu(false);
-    setShowCommodore(false);
+    setView("circuits");
   };
 
   const handleSave = async (def: Omit<CircuitDefinition, "id">) => {
@@ -93,6 +93,164 @@ function App() {
     }
   };
 
+  if (view === "home") {
+    return (
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          height: "100vh",
+          background: "#020617",
+          color: "#e2e8f0",
+          fontFamily: "monospace",
+        }}
+      >
+        <div
+          style={{
+            fontSize: 28,
+            fontWeight: "bold",
+            color: "#60a5fa",
+            marginBottom: 8,
+          }}
+        >
+          ModularCircuits+
+        </div>
+        <div style={{ fontSize: 13, color: "#64748b", marginBottom: 40 }}>
+          Choose an application
+        </div>
+        <div style={{ display: "flex", gap: 20 }}>
+          <button
+            onClick={() => setView("circuits")}
+            style={{
+              width: 220,
+              height: 140,
+              background: "#0f172a",
+              color: "#fff",
+              border: "1px solid #1e3a8a",
+              borderRadius: 8,
+              cursor: "pointer",
+              fontSize: 15,
+              fontWeight: "bold",
+            }}
+          >
+            Circuit Editor
+            <div
+              style={{
+                fontSize: 11,
+                fontWeight: "normal",
+                color: "#94a3b8",
+                marginTop: 8,
+              }}
+            >
+              Design and simulate logic circuits
+            </div>
+          </button>
+          <button
+            onClick={() => setView("cpu")}
+            style={{
+              width: 220,
+              height: 140,
+              background: "#1e1b4b",
+              color: "#fff",
+              border: "1px solid #7c3aed",
+              borderRadius: 8,
+              cursor: "pointer",
+              fontSize: 15,
+              fontWeight: "bold",
+            }}
+          >
+            8-bit CPU Lab
+            <div
+              style={{
+                fontSize: 11,
+                fontWeight: "normal",
+                color: "#94a3b8",
+                marginTop: 8,
+              }}
+            >
+              Microcoded CPU, assembler and debugger
+            </div>
+          </button>
+          <button
+            onClick={() => setView("commodore")}
+            style={{
+              width: 220,
+              height: 140,
+              background: "#1e1b4b",
+              color: "#fff",
+              border: "1px solid #6366f1",
+              borderRadius: 8,
+              cursor: "pointer",
+              fontSize: 15,
+              fontWeight: "bold",
+            }}
+          >
+            Commodore UI
+            <div
+              style={{
+                fontSize: 11,
+                fontWeight: "normal",
+                color: "#94a3b8",
+                marginTop: 8,
+              }}
+            >
+              C64/C128-inspired terminal shell
+            </div>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (view === "cpu" || view === "commodore") {
+    return (
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          height: "100vh",
+          background: "#020617",
+          color: "#e2e8f0",
+          fontFamily: "monospace",
+        }}
+      >
+        <div
+          style={{
+            padding: "8px 16px",
+            background: "#0f172a",
+            borderBottom: "1px solid #1e293b",
+            display: "flex",
+            alignItems: "center",
+            gap: 16,
+          }}
+        >
+          <button
+            onClick={() => setView("home")}
+            style={{
+              background: "transparent",
+              color: "#94a3b8",
+              border: "1px solid #334155",
+              borderRadius: 4,
+              padding: "2px 12px",
+              cursor: "pointer",
+              fontSize: 12,
+            }}
+          >
+            ← Home
+          </button>
+          <span style={{ fontWeight: "bold", color: "#60a5fa" }}>
+            {view === "cpu" ? "8-bit CPU Lab" : "Commodore UI"}
+          </span>
+        </div>
+        <div style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
+          {view === "cpu" ? <MicroCpuPanel /> : <CommodorePanel />}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       style={{
@@ -118,11 +276,28 @@ function App() {
           style={{
             padding: "16px 12px",
             borderBottom: "1px solid #1e293b",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
           }}
         >
           <div style={{ fontSize: 14, fontWeight: "bold", color: "#60a5fa" }}>
             ModularCircuits+
           </div>
+          <button
+            onClick={() => setView("home")}
+            style={{
+              background: "transparent",
+              color: "#94a3b8",
+              border: "1px solid #334155",
+              borderRadius: 4,
+              padding: "1px 8px",
+              cursor: "pointer",
+              fontSize: 11,
+            }}
+          >
+            ← Home
+          </button>
         </div>
         <div style={{ padding: 8, overflowY: "auto", flex: 1 }}>
           <button
@@ -139,18 +314,6 @@ function App() {
             }}
           >
             + New Circuit
-          </button>
-          <button
-            onClick={() => { setShowCpu(true); setShowCommodore(false); }}
-            style={{ width: "100%", background: showCpu ? "#6d28d9" : "#312e81", color: "#fff", border: "1px solid #7c3aed", borderRadius: 4, padding: "6px 0", cursor: "pointer", marginBottom: 12 }}
-          >
-            8-bit CPU Lab
-          </button>
-          <button
-            onClick={() => { setShowCommodore(true); setShowCpu(false); }}
-            style={{ width: "100%", background: showCommodore ? "#4338ca" : "#1e1b4b", color: "#fff", border: "1px solid #6366f1", borderRadius: 4, padding: "6px 0", cursor: "pointer", marginBottom: 12 }}
-          >
-            Commodore UI
           </button>
           <div
             style={{
@@ -239,7 +402,7 @@ function App() {
           overflow: "hidden",
         }}
       >
-        {showCommodore ? <CommodorePanel /> : showCpu ? <MicroCpuPanel /> : selected ? (
+        {selected ? (
           <>
             <div
               style={{

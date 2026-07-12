@@ -1,8 +1,11 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { assembleMicroCpu, MicroCpu } from "@mcp/core";
 
 type Machine = "C64" | "C128";
 type Program = Record<number, string>;
+
+const SCREEN_ROWS = 25;
+const LINE_HEIGHT_PX = 20; // 16px font * 1.25 line-height
 
 export function CommodorePanel() {
   const [machine, setMachine] = useState<Machine>("C64");
@@ -12,9 +15,14 @@ export function CommodorePanel() {
   const [monitor, setMonitor] = useState(false);
   const [output, setOutput] = useState<string[]>(() => banner("C64"));
   const inputRef = useRef<HTMLInputElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const cpu = useRef(new MicroCpu());
 
-  const width = columns * 9.6;
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+  }, [output]);
+
+  const width = `${columns}ch`;
   const orderedProgram = useMemo(() => Object.entries(program).map(([line, text]) => [Number(line), text] as const).sort((a, b) => a[0] - b[0]), [program]);
 
   const selectMachine = (next: Machine) => {
@@ -123,18 +131,24 @@ export function CommodorePanel() {
 
   const append = (...lines: string[]) => setOutput(current => [...current, ...lines].slice(-200));
 
-  return <div style={{ height: "100%", overflow: "auto", background: "#111827", padding: 20, boxSizing: "border-box" }}>
-    <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 14, fontFamily: "monospace" }}>
+  return <div style={{ height: "100%", display: "flex", flexDirection: "column", background: "#111827", boxSizing: "border-box" }}>
+    <div style={{ display: "flex", gap: 8, alignItems: "center", padding: "20px 20px 14px", flexShrink: 0, fontFamily: "monospace" }}>
       <button onClick={() => selectMachine("C64")} style={button(machine === "C64")}>C64</button>
       <button onClick={() => selectMachine("C128")} style={button(machine === "C128")}>C128</button>
       {machine === "C128" && <button onClick={() => setColumns(columns === 40 ? 80 : 40)} style={button(false)}>{columns === 40 ? "80 columns" : "40 columns"}</button>}
       <span style={{ color: "#94a3b8", marginLeft: 8 }}>{machine} compatible shell · {columns} columns</span>
     </div>
-    <div onClick={() => inputRef.current?.focus()} style={{ width, maxWidth: "100%", minHeight: 520, margin: "0 auto", padding: "28px 34px", boxSizing: "border-box", overflow: "hidden", background: machine === "C64" ? "#3b50b6" : "#233f9a", border: "16px solid #6c78d1", boxShadow: "0 12px 40px #000, inset 0 0 35px #172554", color: "#a8b6ff", fontFamily: "'Courier New', monospace", fontWeight: "bold", fontSize: 16, lineHeight: 1.25, textTransform: "uppercase" }}>
-      {output.map((line, index) => <div key={index} style={{ minHeight: "1.25em", whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{line.slice(0, columns)}</div>)}
-      <div style={{ display: "flex" }}><span>{monitor ? "." : ""}</span><input ref={inputRef} autoFocus value={input} onChange={event => setInput(event.target.value)} onKeyDown={event => { if (event.key === "Enter") submit(); }} style={{ flex: 1, minWidth: 0, border: 0, outline: 0, padding: 0, background: "transparent", color: "inherit", caretColor: "#a8b6ff", font: "inherit", fontWeight: "inherit", textTransform: "uppercase" }} /></div>
+    <div style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "0 20px 20px" }}>
+      <div
+        ref={scrollRef}
+        onClick={() => inputRef.current?.focus()}
+        style={{ width, maxWidth: "100%", height: SCREEN_ROWS * LINE_HEIGHT_PX, overflowY: "auto", overflowX: "hidden", margin: "0 auto", padding: "28px 34px", boxSizing: "content-box", background: machine === "C64" ? "#3b50b6" : "#233f9a", border: "16px solid #6c78d1", boxShadow: "0 12px 40px #000, inset 0 0 35px #172554", color: "#a8b6ff", fontFamily: "'Courier New', monospace", fontWeight: "bold", fontSize: 16, lineHeight: 1.25, textTransform: "uppercase" }}
+      >
+        {output.map((line, index) => <div key={index} style={{ minHeight: "1.25em", whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{line.slice(0, columns)}</div>)}
+        <div style={{ display: "flex" }}><span>{monitor ? "." : ""}</span><input ref={inputRef} autoFocus value={input} onChange={event => setInput(event.target.value)} onKeyDown={event => { if (event.key === "Enter") submit(); }} style={{ flex: 1, minWidth: 0, border: 0, outline: 0, padding: 0, background: "transparent", color: "inherit", caretColor: "#a8b6ff", font: "inherit", fontWeight: "inherit", textTransform: "uppercase" }} /></div>
+      </div>
+      <p style={{ color: "#64748b", fontFamily: "monospace", textAlign: "center" }}>Try: <code>10 POKE 32,42</code>, <code>20 PRINT PEEK(32)</code>, <code>RUN</code>{machine === "C128" && <>, <code>MONITOR</code>, <code>M 0020</code></>}</p>
     </div>
-    <p style={{ color: "#64748b", fontFamily: "monospace", textAlign: "center" }}>Try: <code>10 POKE 32,42</code>, <code>20 PRINT PEEK(32)</code>, <code>RUN</code>{machine === "C128" && <>, <code>MONITOR</code>, <code>M 0020</code></>}</p>
   </div>;
 }
 
