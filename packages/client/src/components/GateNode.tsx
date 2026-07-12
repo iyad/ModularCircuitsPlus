@@ -1,11 +1,11 @@
 import { useState, useRef, useEffect } from "react";
 import { Handle, Position, useReactFlow } from "@xyflow/react";
 import type { NodeProps } from "@xyflow/react";
-import type { GateNodeData } from "../flowTypes";
+import type { GateNode } from "../flowTypes";
 
 const HANDLE_SIZE = 8;
 
-export function GateNode({ id, data, selected }: NodeProps<GateNodeData>) {
+export function GateNode({ id, data, selected }: NodeProps<GateNode>) {
   const { updateNodeData } = useReactFlow();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(data.label);

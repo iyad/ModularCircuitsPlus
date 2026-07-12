@@ -13,6 +13,7 @@ import {
   type Connection,
   type Edge,
   type Node,
+  type NodeTypes,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { PRIMITIVES } from "@mcp/core";
@@ -22,7 +23,7 @@ import { GateNode as GateNodeComponent } from "./GateNode";
 import { IONode, type IONodeData } from "./IONode";
 import type { CircuitSummary } from "../api";
 
-const nodeTypes = { gate: GateNodeComponent, io: IONode };
+const nodeTypes: NodeTypes = { gate: GateNodeComponent, io: IONode };
 
 interface Props {
   circuit: CircuitDefinition & { name: string };
@@ -119,8 +120,8 @@ function flowToDefinition(
 }
 
 export function CircuitEditor({ circuit, savedCircuits, allDefinitions, onSave }: Props) {
-  const [nodes, setNodes, onNodesChange] = useNodesState([]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [showJson, setShowJson] = useState(false);
 
   useEffect(() => {

@@ -5,6 +5,8 @@ import type { CircuitDefinition } from "@mcp/core";
 import { CircuitEditor } from "./components/CircuitEditor";
 import { SimulatorPanel } from "./components/SimulatorPanel";
 import { NewCircuitModal } from "./components/NewCircuitModal";
+import { MicroCpuPanel } from "./components/MicroCpuPanel";
+import { CommodorePanel } from "./components/CommodorePanel";
 
 function App() {
   const [circuits, setCircuits] = useState<CircuitSummary[]>([]);
@@ -16,6 +18,8 @@ function App() {
   });
   const [showNew, setShowNew] = useState(false);
   const [tab, setTab] = useState<"editor" | "simulator">("editor");
+  const [showCpu, setShowCpu] = useState(false);
+  const [showCommodore, setShowCommodore] = useState(false);
 
   const loadCircuits = async () => {
     const list = await api.listCircuits();
@@ -38,6 +42,8 @@ function App() {
     const full = await api.getCircuit(id);
     setSelected({ ...full.definition, name: full.name });
     setTab("editor");
+    setShowCpu(false);
+    setShowCommodore(false);
   };
 
   const handleSave = async (def: Omit<CircuitDefinition, "id">) => {
@@ -134,6 +140,18 @@ function App() {
           >
             + New Circuit
           </button>
+          <button
+            onClick={() => { setShowCpu(true); setShowCommodore(false); }}
+            style={{ width: "100%", background: showCpu ? "#6d28d9" : "#312e81", color: "#fff", border: "1px solid #7c3aed", borderRadius: 4, padding: "6px 0", cursor: "pointer", marginBottom: 12 }}
+          >
+            8-bit CPU Lab
+          </button>
+          <button
+            onClick={() => { setShowCommodore(true); setShowCpu(false); }}
+            style={{ width: "100%", background: showCommodore ? "#4338ca" : "#1e1b4b", color: "#fff", border: "1px solid #6366f1", borderRadius: 4, padding: "6px 0", cursor: "pointer", marginBottom: 12 }}
+          >
+            Commodore UI
+          </button>
           <div
             style={{
               fontSize: 11,
@@ -221,7 +239,7 @@ function App() {
           overflow: "hidden",
         }}
       >
-        {selected ? (
+        {showCommodore ? <CommodorePanel /> : showCpu ? <MicroCpuPanel /> : selected ? (
           <>
             <div
               style={{

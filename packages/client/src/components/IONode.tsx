@@ -1,5 +1,5 @@
 import { Handle, Position } from "@xyflow/react";
-import type { NodeProps } from "@xyflow/react";
+import type { Node, NodeProps } from "@xyflow/react";
 
 export interface IONodeData extends Record<string, unknown> {
   label: string;
@@ -10,7 +10,9 @@ export interface IONodeData extends Record<string, unknown> {
 const HANDLE_SIZE = 8;
 const PIN_ROW_HEIGHT = 24;
 
-export function IONode({ data }: NodeProps<IONodeData>) {
+type IONodeType = Node<IONodeData, "io">;
+
+export function IONode({ data }: NodeProps<IONodeType>) {
   const isInput = data.kind === "input";
   const accent = isInput ? "#22c55e" : "#ef4444";
   const bg = isInput ? "#14532d" : "#7f1d1d";
