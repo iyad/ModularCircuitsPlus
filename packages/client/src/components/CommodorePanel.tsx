@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { assembleMicroCpu, MicroCpu } from "@mcp/core";
+import { assembleMicroCpu, BasicInterpreter, MicroCpu, type BasicEvent } from "@mcp/core";
 
 type Machine = "C64" | "C128";
 type Program = Record<number, string>;
@@ -17,6 +17,9 @@ export function CommodorePanel() {
   const inputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const cpu = useRef(new MicroCpu());
+  const interpreter = useRef(new BasicInterpreter(cpu.current));
+  const pendingRun = useRef<Generator<BasicEvent, void, string[] | undefined> | null>(null);
+  const partialLine = useRef("");
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
@@ -26,12 +29,54 @@ export function CommodorePanel() {
   const orderedProgram = useMemo(() => Object.entries(program).map(([line, text]) => [Number(line), text] as const).sort((a, b) => a[0] - b[0]), [program]);
 
   const selectMachine = (next: Machine) => {
-    cpu.current = new MicroCpu(); setMachine(next); setColumns(40); setMonitor(false); setProgram({}); setInput(""); setOutput(banner(next));
+    cpu.current = new MicroCpu();
+    interpreter.current = new BasicInterpreter(cpu.current);
+    pendingRun.current = null;
+    partialLine.current = "";
+    setMachine(next); setColumns(40); setMonitor(false); setProgram({}); setInput(""); setOutput(banner(next));
+  };
+
+  const flushPartialLine = () => {
+    if (partialLine.current) { append(partialLine.current); partialLine.current = ""; }
+  };
+
+  /** Drive a BASIC generator until it needs input (pauses, stored in pendingRun) or finishes. */
+  const driveBasic = (gen: Generator<BasicEvent, void, string[] | undefined>, resumeValue?: string[]) => {
+    let result = gen.next(resumeValue);
+    while (!result.done) {
+      const event = result.value;
+      if (event.type === "print") {
+        partialLine.current += event.text;
+        if (event.newline) flushPartialLine();
+        result = gen.next();
+        continue;
+      }
+      if (event.type === "input") {
+        flushPartialLine();
+        pendingRun.current = gen;
+        return;
+      }
+      if (event.type === "error") {
+        flushPartialLine();
+        append(event.message, "", "READY.");
+        return;
+      }
+      if (event.type === "done") break;
+    }
+    flushPartialLine();
+    append("", "READY.");
   };
 
   const submit = () => {
     const entered = input.trim();
     setInput("");
+    if (pendingRun.current) {
+      const gen = pendingRun.current;
+      pendingRun.current = null;
+      append(entered.toUpperCase());
+      driveBasic(gen, entered.split(","));
+      return;
+    }
     if (!entered) { append(""); return; }
     append(entered.toUpperCase());
     if (monitor) { runMonitorCommand(entered); return; }
@@ -52,52 +97,15 @@ export function CommodorePanel() {
   const runDirect = (command: string) => {
     const upper = command.trim().toUpperCase();
     if (upper === "LIST") { append(...orderedProgram.map(([n, text]) => `${n} ${text}`), "", "READY."); return; }
-    if (upper === "NEW") { setProgram({}); append("", "READY."); return; }
+    if (upper === "NEW") { setProgram({}); interpreter.current.clearVariables(); append("", "READY."); return; }
     if (upper === "RUN") { runProgram(); return; }
     if (upper === "MONITOR" && machine === "C128") { setMonitor(true); append("", "MONITOR", ""); return; }
-    if (upper.startsWith("PRINT") || upper.startsWith("?")) {
-      const expression = upper.startsWith("?") ? command.slice(1) : command.slice(5);
-      append(formatPrint(expression, cpu.current.memory), "", "READY."); return;
-    }
-    const poke = command.match(/^POKE\s+([^,]+)\s*,\s*(.+)$/i);
-    if (poke) {
-      const address = basicNumber(poke[1]); const value = basicNumber(poke[2]);
-      if (address === undefined || value === undefined || address > 255 || value > 255) append("?ILLEGAL QUANTITY  ERROR", "", "READY.");
-      else { cpu.current.memory[address] = value; append("", "READY."); }
-      return;
-    }
-    const sys = command.match(/^SYS\s+(.+)$/i);
-    if (sys) {
-      const address = basicNumber(sys[1]);
-      if (address === undefined || address > 255) append("?ILLEGAL QUANTITY  ERROR", "", "READY.");
-      else {
-        cpu.current.registers.pc = address; cpu.current.halted = false;
-        for (let i = 0; i < 1000 && !cpu.current.halted; i++) cpu.current.tick();
-        append("", "READY.");
-      }
-      return;
-    }
-    append("?SYNTAX  ERROR", "", "READY.");
+    driveBasic(interpreter.current.runDirect(command));
   };
 
   const runProgram = () => {
-    const lines: string[] = [];
-    for (const [, statement] of orderedProgram) {
-      const upper = statement.toUpperCase();
-      if (upper.startsWith("REM")) continue;
-      if (upper === "END" || upper === "STOP") break;
-      if (upper.startsWith("PRINT") || upper.startsWith("?")) {
-        lines.push(formatPrint(upper.startsWith("?") ? statement.slice(1) : statement.slice(5), cpu.current.memory));
-      } else if (/^POKE\s+/i.test(statement)) {
-        const match = statement.match(/^POKE\s+([^,]+)\s*,\s*(.+)$/i);
-        const address = match ? basicNumber(match[1]) : undefined; const value = match ? basicNumber(match[2]) : undefined;
-        if (address === undefined || value === undefined || address > 255 || value > 255) { lines.push("?ILLEGAL QUANTITY  ERROR IN PROGRAM"); break; }
-        cpu.current.memory[address] = value;
-      } else {
-        lines.push("?SYNTAX  ERROR IN PROGRAM"); break;
-      }
-    }
-    append(...lines, "", "READY.");
+    const lines = Object.fromEntries(orderedProgram);
+    driveBasic(interpreter.current.run(lines));
   };
 
   const runMonitorCommand = (command: string) => {
@@ -147,7 +155,7 @@ export function CommodorePanel() {
         {output.map((line, index) => <div key={index} style={{ minHeight: "1.25em", whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{line.slice(0, columns)}</div>)}
         <div style={{ display: "flex" }}><span>{monitor ? "." : ""}</span><input ref={inputRef} autoFocus value={input} onChange={event => setInput(event.target.value)} onKeyDown={event => { if (event.key === "Enter") submit(); }} style={{ flex: 1, minWidth: 0, border: 0, outline: 0, padding: 0, background: "transparent", color: "inherit", caretColor: "#a8b6ff", font: "inherit", fontWeight: "inherit", textTransform: "uppercase" }} /></div>
       </div>
-      <p style={{ color: "#64748b", fontFamily: "monospace", textAlign: "center" }}>Try: <code>10 POKE 32,42</code>, <code>20 PRINT PEEK(32)</code>, <code>RUN</code>{machine === "C128" && <>, <code>MONITOR</code>, <code>M 0020</code></>}</p>
+      <p style={{ color: "#64748b", fontFamily: "monospace", textAlign: "center" }}>Try: <code>10 FOR I=1 TO 5</code>, <code>20 PRINT I*I</code>, <code>30 NEXT I</code>, <code>RUN</code>{machine === "C128" && <>, <code>MONITOR</code>, <code>M 0020</code></>}</p>
     </div>
   </div>;
 }
@@ -157,16 +165,6 @@ function banner(machine: Machine): string[] {
     ? ["", "    **** COMMODORE 64 BASIC V2 ****", "", " 64K RAM SYSTEM  38911 BASIC BYTES FREE", "", "READY."]
     : ["", " COMMODORE BASIC V7.0 122365 BYTES FREE", "", "       (C)1986 COMMODORE ELECTRONICS", "", "READY."];
 }
-function formatPrint(expression: string, memory: Uint8Array): string {
-  const value = expression.trim();
-  const quoted = value.match(/^"([\s\S]*)"$/);
-  if (quoted) return quoted[1];
-  if (/^[+-]?\d+(?:\.\d+)?$/.test(value)) return ` ${Number(value)} `;
-  const peek = value.match(/^PEEK\s*\(\s*(\d+)\s*\)$/i);
-  if (peek && Number(peek[1]) < memory.length) return ` ${memory[Number(peek[1])]} `;
-  return value ? "?TYPE MISMATCH  ERROR" : "";
-}
-function basicNumber(value: string): number | undefined { const text = value.trim(); if (!/^\d+$/.test(text)) return undefined; const result = Number(text); return result >= 0 ? result : undefined; }
 function monitorAddress(value: string): number { const result = Number.parseInt(value, 16); if (!Number.isFinite(result) || result > 0xff) throw new Error("ADDRESS OUT OF RANGE"); return result; }
 function hex(value: number): string { return (value & 0xff).toString(16).toUpperCase().padStart(2, "0"); }
 function memoryDump(memory: Uint8Array, start: number, end: number): string[] { const lines: string[] = []; for (let at = start; at <= end; at += 8) { const bytes = Array.from(memory.slice(at, Math.min(end + 1, at + 8))); lines.push(`>${hex(at)} ${bytes.map(hex).join(" ")}`); } return lines; }

@@ -9,6 +9,7 @@ export function MicroCpuPanel() {
   const [state, setState] = useState<CpuSnapshot>(() => cpu.current.snapshot());
   const [source, setSource] = useState(DEMO_SOURCE);
   const [error, setError] = useState("");
+  const [watches, setWatches] = useState<number[]>([0x10, 0x11]);
 
   const step = () => setState(cpu.current.tick());
   const stepInstruction = () => setState(cpu.current.stepInstruction());
@@ -55,7 +56,18 @@ export function MicroCpuPanel() {
         {error && <div style={{ color: "#f87171", marginTop: 8 }}>{error}</div>}
       </Card>
       <Card title="Zero-page memory">
-        <Row name="$10" value={h(state.memory[0x10])} /><Row name="$11 result" value={h(state.memory[0x11])} />
+        {watches.map((address, index) => (
+          <WatchRow
+            key={index}
+            address={address}
+            value={h(state.memory[address])}
+            onChange={next => setWatches(current => current.map((a, i) => (i === index ? next : a)))}
+            onRemove={() => setWatches(current => current.filter((_, i) => i !== index))}
+          />
+        ))}
+        <div style={{ marginTop: 8 }}>
+          <Button onClick={() => setWatches(current => [...current, 0x00])}>+ Watch address</Button>
+        </div>
       </Card>
     </div>
   </div>;
@@ -63,4 +75,29 @@ export function MicroCpuPanel() {
 
 function Card({ title, children }: { title: string; children: React.ReactNode }) { return <section style={{ background: "#0f172a", border: "1px solid #1e293b", borderRadius: 7, padding: 16 }}><h3 style={{ color: "#94a3b8", margin: "0 0 12px", fontSize: 13 }}>{title}</h3>{children}</section>; }
 function Row({ name, value }: { name: string; value: string }) { return <div style={{ display: "flex", justifyContent: "space-between", borderBottom: "1px solid #1e293b", padding: "5px 0" }}><span style={{ color: "#64748b" }}>{name}</span><strong>{value}</strong></div>; }
+function WatchRow({ address, value, onChange, onRemove }: { address: number; value: string; onChange: (address: number) => void; onRemove: () => void }) {
+  const [text, setText] = useState(address.toString(16).toUpperCase().padStart(2, "0"));
+  const commit = () => {
+    const parsed = Number.parseInt(text, 16);
+    if (Number.isFinite(parsed) && parsed >= 0 && parsed <= 0xff) onChange(parsed);
+    else setText(address.toString(16).toUpperCase().padStart(2, "0"));
+  };
+  return <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, borderBottom: "1px solid #1e293b", padding: "5px 0" }}>
+    <span style={{ color: "#64748b", display: "flex", alignItems: "center", gap: 4 }}>
+      $
+      <input
+        value={text}
+        onChange={event => setText(event.target.value.toUpperCase())}
+        onBlur={commit}
+        onKeyDown={event => { if (event.key === "Enter") (event.target as HTMLInputElement).blur(); }}
+        maxLength={2}
+        style={{ width: 28, background: "#020617", color: "#e2e8f0", border: "1px solid #334155", borderRadius: 3, padding: "2px 4px", fontFamily: "monospace" }}
+      />
+    </span>
+    <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
+      <strong>{value}</strong>
+      <button onClick={onRemove} style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: 14, padding: 0 }}>×</button>
+    </span>
+  </div>;
+}
 function Button({ onClick, children }: { onClick: () => void; children: React.ReactNode }) { return <button onClick={onClick} style={{ background: "#1d4ed8", color: "white", border: "1px solid #3b82f6", borderRadius: 4, padding: "6px 12px", cursor: "pointer" }}>{children}</button>; }
