@@ -286,6 +286,10 @@ function App() {
             </div>
           </button>
         </div>
+        <div style={{ position: "absolute", bottom: 16, fontSize: 11, display: "flex", gap: 16 }}>
+          <a href="/privacy/" style={{ color: "#64748b" }}>Privacy</a>
+          <a href="/terms/" style={{ color: "#64748b" }}>Terms</a>
+        </div>
       </div>
     );
   }
