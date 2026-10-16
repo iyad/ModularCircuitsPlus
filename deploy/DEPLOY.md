@@ -1,8 +1,8 @@
 # Deploying Bits & Gates (ModularCircuits+) to a VPS
 
-The production setup is a single Node process. Express serves both the API (`/api`) and the built React client from one origin. nginx sits in front of it to provide HTTPS. Sign-in is handled by Auth0, and the Free plan is enough.
+The app runs as one Docker container: a single Node process where Express serves both the API (`/api`) and the built React client. The server's shared Caddy container sits in front of it and provides HTTPS. Sign-in is handled by Auth0, and the Free plan is enough.
 
-These steps assume Ubuntu/Debian and the domain `bitsandgates.com`. Replace `your-tenant.us.auth0.com` with your Auth0 tenant domain.
+Throughout, replace `your-tenant.us.auth0.com` with your Auth0 tenant domain.
 
 ## 1. Auth0 setup (once)
 
@@ -22,83 +22,83 @@ These steps assume Ubuntu/Debian and the domain `bitsandgates.com`. Replace `you
    - On the connection's **Applications** tab, enable it for your SPA.
 5. Optional: if you want social sign-in only, disable the default *Username-Password-Authentication* database connection for the app.
 
-## 2. Server preparation (once)
+## 2. DNS (once)
 
-The target VPS is the Hetzner Cloud server in Helsinki (`46.62.222.239` / `2a01:4f9:c014:8a83::1`). It **already hosts bexleytechnology.co.uk**, so before changing anything:
+At your registrar, create these records for **bitsandgates.com**:
 
-- Run `sudo ss -tlnp | grep -E ':(80|443|3001)\b'`. If the existing site is served by nginx, add Bits & Gates as an extra site file (below) and leave the existing config alone. If it's Apache or Caddy, adapt `deploy/nginx.conf` to that server rather than installing a second web server on ports 80/443.
-- If something already uses port 3001, set a different `PORT` in `server.env` and use the same port in `proxy_pass`.
-- Skip `apt install` for any packages already present. Check `node -v` first: the server needs Node 22, and upgrading Node could affect other apps on the box.
-- `certbot --nginx -d bitsandgates.com -d www.bitsandgates.com` only edits the server block for those names. Existing certificates are left alone.
+| Type | Name | Value |
+|---|---|---|
+| A | `@` | `46.62.222.239` |
+| A | `www` | `46.62.222.239` |
+| AAAA | `@` | `2a01:4f9:c014:8a83::1` |
+| AAAA | `www` | `2a01:4f9:c014:8a83::1` |
 
-```bash
-# Node 22 + pnpm
-curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
-sudo apt install -y nodejs nginx certbot python3-certbot-nginx git
-sudo corepack enable
+Wait until `nslookup bitsandgates.com` returns those addresses before step 4. Caddy requests the HTTPS certificate as soon as the site file is loaded, and repeated failed attempts count against Let's Encrypt rate limits.
 
-# Service user, code, and data directories
-sudo useradd --system --home /opt/modularcircuits --shell /usr/sbin/nologin modularcircuits
-sudo git clone <your-repo-url> /opt/modularcircuits
-sudo mkdir -p /var/lib/modularcircuits /etc/modularcircuits
+## 3. The server
 
-# Seed the live database with the starter library committed in the repo
-sudo cp /opt/modularcircuits/circuits.db /var/lib/modularcircuits/circuits.db
-sudo chown -R modularcircuits: /opt/modularcircuits /var/lib/modularcircuits
-```
+The target is the Hetzner Cloud VPS in Helsinki, `ubuntu-8gb-hel1-1` (Ubuntu 24.04). It **also serves bexleytechnology.co.uk and other sites**, so nothing here touches their config:
 
-Configure and build:
+- **Caddy** runs in Docker as `site-caddy` (`~/site-deploy/docker-compose.yml`). It owns ports 80/443, gets TLS certificates automatically, and imports one file per site from `~/site-deploy/sites/*.caddy`. No nginx or certbot is involved.
+- **Apps** run as separate hardened containers on Caddy's Docker network, `site-deploy_default`, with no published ports. Bits & Gates follows the same pattern as `bexley-quote`.
+- **Access:** SSH is only reachable over the VPN at `10.10.0.1` (user `iyad`). A firewall in front of the server allows only 80/443 publicly.
+
+## 4. First deployment
+
+On the server (`ssh 10.10.0.1`):
 
 ```bash
-cd /opt/modularcircuits
-sudo -u modularcircuits cp packages/client/.env.example packages/client/.env   # then edit the three values
-sudo -u modularcircuits pnpm install --frozen-lockfile
-sudo -u modularcircuits pnpm build
+mkdir -p ~/site-deploy/bits-and-gates/data
+cd ~/site-deploy/bits-and-gates
+git clone https://github.com/iyad/ModularCircuitsPlus.git src
 
-sudo cp deploy/server.env.example /etc/modularcircuits/server.env             # then edit it
-sudo chmod 640 /etc/modularcircuits/server.env && sudo chown root:modularcircuits /etc/modularcircuits/server.env
+cp src/deploy/compose.yml .
+cp src/deploy/app.env.example .env        # then fill in the Auth0 values from step 1
+nano .env
+
+APP_TAG=$(git -C src rev-parse --short HEAD) docker compose up -d --build
+docker compose ps                          # wait for "(healthy)"
+docker compose logs --tail 20              # expect "auth enabled"
 ```
 
-Run it as a service, then put nginx and HTTPS in front:
+On first start the container copies the starter library from the image into `data/circuits.db`. After that, the live database in `data/` is never overwritten by deploys.
+
+Once DNS resolves (step 2), add the site to Caddy and reload it. Reloading is graceful: the other sites stay up.
 
 ```bash
-sudo cp deploy/modularcircuits.service /etc/systemd/system/
-sudo systemctl daemon-reload && sudo systemctl enable --now modularcircuits
-sudo journalctl -u modularcircuits -f      # expect "auth enabled"
-
-sudo cp deploy/nginx.conf /etc/nginx/sites-available/modularcircuits
-sudo ln -s /etc/nginx/sites-available/modularcircuits /etc/nginx/sites-enabled/
-sudo nginx -t && sudo systemctl reload nginx
-sudo certbot --nginx -d bitsandgates.com -d www.bitsandgates.com
+cp src/deploy/bitsandgates.caddy ~/site-deploy/sites/
+docker exec site-caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+docker exec site-caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
+docker logs site-caddy --since 2m 2>&1 | grep -i bitsandgates   # look for "certificate obtained"
 ```
 
-At your registrar, add DNS `A` records for `bitsandgates.com` and `www.bitsandgates.com` pointing to the VPS's IP address (plus `AAAA` records if it has IPv6), and wait until `dig +short bitsandgates.com` returns that IP before running certbot. Keep port 3001 closed to the internet (e.g. `sudo ufw allow 'Nginx Full' && sudo ufw allow OpenSSH && sudo ufw enable`). Only nginx should reach the app.
+Then open <https://bitsandgates.com>.
 
-## 3. Updating
+## 5. Updating
 
 ```bash
-cd /opt/modularcircuits
-sudo -u modularcircuits git pull
-sudo -u modularcircuits pnpm install --frozen-lockfile
-sudo -u modularcircuits pnpm build
-sudo systemctl restart modularcircuits
+cd ~/site-deploy/bits-and-gates
+git -C src pull
+APP_TAG=$(git -C src rev-parse --short HEAD) docker compose up -d --build
 ```
 
-The live database at `DB_PATH` isn't touched by updates. Schema migrations run automatically when the server starts.
+Each release is tagged with its commit, so the previous image stays available. To roll back, run `APP_TAG=<previous-commit> docker compose up -d` (without `--build`); `docker images bits-and-gates` lists the tags. If `deploy/compose.yml` or `deploy/bitsandgates.caddy` changed, copy them again as in step 4. After changing the Caddy file, validate and reload.
 
-## 4. Starter library and admins
+## 6. Starter library and admins
 
 - Circuits whose `owner_id` is NULL form the shared **starter library**. Everyone sees them, including guests. Signed-in users can open them and "Save a Copy" into their own circuits.
-- To edit the live library, set `ADMIN_USER_IDS` in `server.env` to your Auth0 user id, e.g. `google-oauth2|1234567890`. Find it under User Management → Users. Then restart the service.
-- Local dev without Auth0 configured writes straight into the library in the repo's `circuits.db`. That copy only reaches production on the first deploy (the seeding step above), never on later updates.
+- To edit the live library, put your Auth0 user id in `ADMIN_USER_IDS` in `.env`, e.g. `google-oauth2|1234567890`. Find it under User Management → Users. Then run `docker compose up -d`.
+- Local dev without Auth0 configured writes straight into the library in the repo's `circuits.db`. That copy only reaches production on the very first start, never on later deploys.
 
-## 5. Backups
+## 7. Backups
 
-SQLite runs in WAL mode, so copy it with the online backup command rather than `cp`:
+SQLite runs in WAL mode, so use its online backup API rather than copying the file:
 
 ```bash
-sudo apt install -y sqlite3
-sudo -u modularcircuits sqlite3 /var/lib/modularcircuits/circuits.db ".backup '/var/lib/modularcircuits/backup-$(date +%F).db'"
+cd ~/site-deploy/bits-and-gates
+docker exec -w /app/packages/server bits-and-gates node -e \
+  "new (require('better-sqlite3'))('/data/circuits.db').backup('/data/backup.db').then(() => console.log('ok'))"
+mv data/backup.db ~/site-deploy/backups/bitsandgates-$(date +%F).db
 ```
 
-Put that in a daily cron job and copy the backups off the server.
+Run that from a daily cron job and copy the backups off the server.

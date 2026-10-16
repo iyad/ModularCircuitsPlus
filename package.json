@@ -1,7 +1,10 @@
 {
   "name": "modular-circuits-plus",
   "private": true,
-  "workspaces": ["packages/*"],
+  "packageManager": "pnpm@11.5.3",
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
     "dev": "pnpm --filter @mcp/core build && concurrently \"pnpm --filter @mcp/core dev\" \"pnpm --filter @mcp/server dev\" \"pnpm --filter @mcp/client dev\"",
     "build": "pnpm --filter @mcp/core build && pnpm --filter @mcp/server build && pnpm --filter @mcp/client build"

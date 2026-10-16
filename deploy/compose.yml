@@ -1,0 +1,38 @@
+# Bits & Gates on the Hetzner VPS, behind the shared site-caddy container. See deploy/DEPLOY.md.
+# Runs from /home/iyad/site-deploy/bits-and-gates/ with this layout:
+#   compose.yml  (this file)   .env  (Auth0 settings)   src/  (git checkout)   data/  (live SQLite DB)
+#   APP_TAG=$(git -C src rev-parse --short HEAD) docker compose up -d --build
+services:
+  bits-and-gates:
+    build:
+      context: ./src
+      args:
+        VITE_AUTH0_DOMAIN: ${AUTH0_DOMAIN:?set AUTH0_DOMAIN in .env}
+        VITE_AUTH0_CLIENT_ID: ${AUTH0_CLIENT_ID:?set AUTH0_CLIENT_ID in .env}
+        VITE_AUTH0_AUDIENCE: ${AUTH0_AUDIENCE:?set AUTH0_AUDIENCE in .env}
+    image: bits-and-gates:${APP_TAG:-latest}
+    container_name: bits-and-gates
+    restart: unless-stopped
+    environment:
+      AUTH0_DOMAIN: ${AUTH0_DOMAIN}
+      AUTH0_AUDIENCE: ${AUTH0_AUDIENCE}
+      ADMIN_USER_IDS: ${ADMIN_USER_IDS:-}
+    volumes:
+      # Owned by uid 1000 (iyad on the host, node in the container).
+      - ./data:/data
+    # No published ports: only Caddy, on the shared network, can reach it.
+    networks: [caddy]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 256m
+    pids_limit: 64
+    logging:
+      driver: json-file
+      options: { max-size: "1m", max-file: "3" }
+
+networks:
+  caddy:
+    external: true
+    name: site-deploy_default

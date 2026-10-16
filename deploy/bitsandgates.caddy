@@ -1,0 +1,35 @@
+# Bits & Gates — Caddy site configuration for the shared site-caddy container.
+# Install as /home/iyad/site-deploy/sites/bitsandgates.caddy (imported by the root Caddyfile).
+# Caddy obtains the public TLS certificates itself once DNS for both names points at this VPS.
+
+(bitsandgates_headers) {
+	header {
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		X-Frame-Options "DENY"
+		-Server
+	}
+}
+
+bitsandgates.com {
+	encode zstd gzip
+	import bitsandgates_headers
+
+	# Vite's hashed build assets never change: cache for a year.
+	@hashed path /assets/*
+	header @hashed >Cache-Control "public, max-age=31536000, immutable"
+
+	# The SPA shell must revalidate so a new release is picked up immediately.
+	@html not path /assets/* /api/*
+	header @html >Cache-Control "no-cache"
+
+	request_body {
+		max_size 1MB
+	}
+	reverse_proxy bits-and-gates:3001
+}
+
+www.bitsandgates.com {
+	redir https://bitsandgates.com{uri} permanent
+}

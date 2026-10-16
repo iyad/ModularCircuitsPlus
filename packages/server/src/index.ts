@@ -14,6 +14,7 @@ const isProduction = process.env.NODE_ENV === "production";
 // In production the client is served from this same origin, so cross-origin access isn't needed.
 if (!isProduction) app.use(cors());
 app.use(express.json({ limit: "1mb" }));
+app.get("/api/health", (_req, res) => res.json({ ok: true }));
 app.use("/api/circuits", circuitsRouter);
 
 // Serve the built client (pnpm build) with SPA fallback.

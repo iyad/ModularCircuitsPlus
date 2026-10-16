@@ -35,7 +35,7 @@ There is no test framework, linter, or formatter configured. Verify changes by:
 - `packages/core/dist/` is **committed to git** (only client/server `dist/` are gitignored). When you change core source, rebuild and commit the updated `dist/` together with it.
 - Core uses `"module": "NodeNext"`, so relative imports inside `packages/core/src` must use the `.js` extension (`import { Simulator } from "./simulator.js"`).
 - `circuits.db` at the repo root is also committed. It is the **starter library** seed (`owner_id` NULL), so don't delete or reset it casually. Production uses a separate database at `DB_PATH`.
-- Server env vars: `PORT` (default 3001; the Vite proxy is hard-coded to `:3001`), `DB_PATH`, `NODE_ENV`, `AUTH0_DOMAIN`, `AUTH0_AUDIENCE`, `ADMIN_USER_IDS`. The server reads `process.env` directly and has no dotenv. See `deploy/server.env.example`.
+- Server env vars: `PORT` (default 3001; the Vite proxy is hard-coded to `:3001`), `DB_PATH`, `NODE_ENV`, `AUTH0_DOMAIN`, `AUTH0_AUDIENCE`, `ADMIN_USER_IDS`. The server reads `process.env` directly and has no dotenv. In production these come from `deploy/compose.yml` and its `.env` (`deploy/app.env.example`).
 - To run locally *with* sign-in, create `packages/client/.env` from `.env.example` and start the server with the two `AUTH0_*` vars set. Leave them all unset for the no-auth dev mode.
 
 ## Architecture
@@ -99,7 +99,9 @@ Single SQLite database (WAL mode). It lives at `circuits.db` in the repo root by
 
 `POST /:id/simulate` accepts `{ inputs, state? }` and returns `{ outputs, signals, state }`. `:id` may also be a primitive ID such as `NAND`. Simulation errors return 400. The caller is responsible for threading `state` back on subsequent calls. On each request the server loads every circuit **visible to the caller**, so composite circuits can resolve their sub-circuits. The Simulator is constructed with `maxEvaluations: 500_000`. Nested oscillating circuits cost up to 64^depth evaluations, and the server is single-threaded, so this cap stops one user from blocking everyone. The largest starter circuit needs ~22k. The simulator also rejects circuits that contain themselves.
 
-**Production serving**: if `packages/client/dist` exists, Express serves it, with an SPA fallback for non-`/api` paths. Production is one process on one origin, so CORS is enabled only outside production. See `deploy/DEPLOY.md` for the VPS setup: systemd unit, nginx + certbot, Auth0 dashboard steps, and backups.
+**Production serving**: if `packages/client/dist` exists, Express serves it, with an SPA fallback for non-`/api` paths. Production is one process on one origin, so CORS is enabled only outside production. `GET /api/health` returns `{ ok: true }`; the container healthcheck uses it.
+
+**Deployment** (`deploy/DEPLOY.md`): a multi-stage `Dockerfile` builds the image. The `VITE_AUTH0_*` values are build args, and the starter `circuits.db` is copied into `/data` on first start only. The container runs on the Hetzner VPS with a read-only filesystem and no published ports, behind the server's shared `site-caddy` container, which handles HTTPS. `deploy/compose.yml` joins Caddy's network, `site-deploy_default`, and `deploy/bitsandgates.caddy` is the site file. That VPS also hosts other sites, so never change anything outside `~/site-deploy/bits-and-gates/` and `~/site-deploy/sites/bitsandgates.caddy` on it. If you change dependencies, check that the image still builds: `docker build .` installs with `--frozen-lockfile`, and the root `packageManager` pins pnpm.
 
 ### `@mcp/client` — React + Vite + React Flow
 
