@@ -28,6 +28,12 @@ services:
     security_opt: ["no-new-privileges:true"]
     mem_limit: 256m
     pids_limit: 64
+    # Hard cap of one core (25% of the 4-core VPS). Node runs simulations on one thread, so this costs
+    # nothing normally and stops runaway use. A lower cap would stretch the worst-case simulation
+    # (maxEvaluations 500k, ~2s on one core) and stall other requests for longer.
+    cpus: 1.0
+    # Half the default weight (1024): under contention the server's other sites win.
+    cpu_shares: 512
     logging:
       driver: json-file
       options: { max-size: "1m", max-file: "3" }
