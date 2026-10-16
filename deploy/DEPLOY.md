@@ -24,6 +24,13 @@ These steps assume Ubuntu/Debian and the domain `bitsandgates.com`. Replace `you
 
 ## 2. Server preparation (once)
 
+The target VPS is the Hetzner Cloud server in Helsinki (`46.62.222.239` / `2a01:4f9:c014:8a83::1`). It **already hosts bexleytechnology.co.uk**, so before changing anything:
+
+- Run `sudo ss -tlnp | grep -E ':(80|443|3001)\b'`. If the existing site is served by nginx, add Bits & Gates as an extra site file (below) and leave the existing config alone. If it's Apache or Caddy, adapt `deploy/nginx.conf` to that server rather than installing a second web server on ports 80/443.
+- If something already uses port 3001, set a different `PORT` in `server.env` and use the same port in `proxy_pass`.
+- Skip `apt install` for any packages already present. Check `node -v` first: the server needs Node 22, and upgrading Node could affect other apps on the box.
+- `certbot --nginx -d bitsandgates.com -d www.bitsandgates.com` only edits the server block for those names. Existing certificates are left alone.
+
 ```bash
 # Node 22 + pnpm
 curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
