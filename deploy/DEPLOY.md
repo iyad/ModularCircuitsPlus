@@ -10,6 +10,7 @@ Throughout, replace `your-tenant.us.auth0.com` with your Auth0 tenant domain.
 2. **Applications → APIs → Create API**
    - Identifier (this is the *audience*): `https://modularcircuits-api`. It's a name, not a URL that must exist.
    - In the API's Settings, enable **Allow Offline Access** (needed for refresh tokens, which keep users signed in).
+   - On the API's **Application Access** tab, authorize the SPA from the next step for **user access**, or set the user-access policy to Allow. Without this, sign-in fails with *Client "…" is not authorized to access resource server "https://modularcircuits-api"*. No client-credentials grant is needed.
 3. **Applications → Applications → Create Application → Single Page Application**
    - Allowed Callback URLs, Allowed Logout URLs, and Allowed Web Origins:
      `https://bitsandgates.com, http://localhost:5173` (`www` redirects to the bare domain, so it does not need its own entry)
