@@ -3,10 +3,24 @@ import { PRIMITIVES } from "./primitives.js";
 
 const MAX_ITERATIONS = 64;
 
+export interface SimulatorOptions {
+  /**
+   * Upper bound on circuit evaluations (primitive + composite) per simulate() call.
+   * Nested oscillating circuits cost up to 64^depth evaluations, so untrusted
+   * callers (e.g. a public server) should set this to keep requests bounded.
+   */
+  maxEvaluations?: number;
+}
+
 export class Simulator {
   private library: Map<string, CircuitDefinition>;
+  private maxEvaluations: number;
+  private evaluations = 0;
+  // Composite circuit ids on the current evaluation path, to reject circuits that contain themselves.
+  private active = new Set<string>();
 
-  constructor(extraDefs: CircuitDefinition[] = []) {
+  constructor(extraDefs: CircuitDefinition[] = [], options: SimulatorOptions = {}) {
+    this.maxEvaluations = options.maxEvaluations ?? Infinity;
     this.library = new Map(Object.entries(PRIMITIVES));
     for (const def of extraDefs) {
       this.library.set(def.id, def);
@@ -32,6 +46,8 @@ export class Simulator {
   ): SimulationResult {
     const def = this.library.get(defId);
     if (!def) throw new Error(`Unknown circuit: ${defId}`);
+    this.evaluations = 0;
+    this.active.clear();
     return this.evalWithState(def, inputs, initialState);
   }
 
@@ -40,10 +56,28 @@ export class Simulator {
     circuitInputs: Record<string, Signal>,
     state: Record<string, Signal>
   ): SimulationResult {
+    if (++this.evaluations > this.maxEvaluations) {
+      throw new Error(`Simulation too large: exceeded ${this.maxEvaluations} evaluations`);
+    }
     if (def.components.length === 0) {
       return this.evalPrimitive(def.id, circuitInputs);
     }
+    if (this.active.has(def.id)) {
+      throw new Error(`Circuit "${def.name}" contains itself`);
+    }
+    this.active.add(def.id);
+    try {
+      return this.evalComposite(def, circuitInputs, state);
+    } finally {
+      this.active.delete(def.id);
+    }
+  }
 
+  private evalComposite(
+    def: CircuitDefinition,
+    circuitInputs: Record<string, Signal>,
+    state: Record<string, Signal>
+  ): SimulationResult {
     const inputSources = new Map<string, PinRef>();
     for (const wire of def.wires) {
       inputSources.set(`${wire.to.componentId}.${wire.to.pinName}`, wire.from);

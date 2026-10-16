@@ -11,7 +11,8 @@
     "@mcp/core": "workspace:*",
     "better-sqlite3": "^11.10.0",
     "cors": "^2.8.5",
-    "express": "^4.18.3"
+    "express": "^4.18.3",
+    "express-oauth2-jwt-bearer": "^1.11.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.8",

@@ -2,16 +2,18 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+The public product name is **Bits & Gates**, hosted at <https://bitsandgates.com>. "ModularCircuits+" / `modularcircuits` / `@mcp/*` remain the internal repo, package, and service names; don't rename those, because the deploy setup (`deploy/`) depends on them.
+
 ## Dev commands
 
 ```bash
 # Install dependencies (requires pnpm)
 pnpm install
 
-# Start both server and client in watch mode
+# Build core once, then run core (tsc --watch), server, and client concurrently
 pnpm dev
 
-# Build all packages in dependency order
+# Build all packages in dependency order (core → server → client); this is also the type-check
 pnpm build
 
 # Run individual packages
@@ -22,6 +24,19 @@ pnpm --filter @mcp/core dev      # tsc --watch (library only, no server)
 
 ### Windows SDK note
 `better-sqlite3` ships prebuilt binaries for Node 22 on Windows x64 (v11+). If `pnpm install` fails on the native build, ensure you're using `better-sqlite3@^11.0.0` — older versions (v9.x) have no prebuilt binary for Node 22 and require Windows SDK 10.0.22621.0 to compile from source.
+
+### Testing and verification
+There is no test framework, linter, or formatter configured. Verify changes by:
+1. `pnpm build`: strict `tsc` across all three packages, plus `vite build` for the client.
+2. Running a standalone Node harness against the built core (for example `node -e "import('./packages/core/dist/index.js').then(m => ...)"`) to exercise `Simulator`, `MicroCpu`, `assembleMicroCpu`, or `BasicInterpreter` directly. Earlier milestones were verified this way.
+
+### Build gotchas
+- `client` and `server` import `@mcp/core` from its **compiled `dist/`** (see `packages/core/package.json` `exports`), not from `src/`. After you change core, rebuild it (`pnpm --filter @mcp/core build`), or keep `pnpm dev` running so `tsc --watch` rebuilds it. Otherwise the other packages see stale code.
+- `packages/core/dist/` is **committed to git** (only client/server `dist/` are gitignored). When you change core source, rebuild and commit the updated `dist/` together with it.
+- Core uses `"module": "NodeNext"`, so relative imports inside `packages/core/src` must use the `.js` extension (`import { Simulator } from "./simulator.js"`).
+- `circuits.db` at the repo root is also committed. It is the **starter library** seed (`owner_id` NULL), so don't delete or reset it casually. Production uses a separate database at `DB_PATH`.
+- Server env vars: `PORT` (default 3001; the Vite proxy is hard-coded to `:3001`), `DB_PATH`, `NODE_ENV`, `AUTH0_DOMAIN`, `AUTH0_AUDIENCE`, `ADMIN_USER_IDS`. The server reads `process.env` directly and has no dotenv. See `deploy/server.env.example`.
+- To run locally *with* sign-in, create `packages/client/.env` from `.env.example` and start the server with the two `AUTH0_*` vars set. Leave them all unset for the no-auth dev mode.
 
 ## Architecture
 
@@ -41,7 +56,7 @@ CircuitDefinition {
 
 `PinRef` uses two reserved `componentId` values: `"input"` (the circuit's own input boundary) and `"output"` (the circuit's own output boundary). All other component IDs are user-assigned instance IDs within the circuit.
 
-**Primitives** (`primitives.ts`): NAND and XOR are the only hardware primitives (empty `components` + `wires`). NOT, AND, and OR are pre-built composite circuits implemented from NAND gates. All five are exported in the `PRIMITIVES` record and automatically seeded into every `Simulator`.
+**Primitives** (`primitives.ts`): NAND and XOR are the only hardware primitives (empty `components` + `wires`). NOT, AND, and OR are pre-built composite circuits implemented from NAND gates. All five are exported in the `PRIMITIVES` record and automatically seeded into every `Simulator`. Their IDs are the uppercase names (`"NAND"`, `"NOT"`, …). Pin names are lowercase: inputs `a`, `b` (NOT has only `a`), output `out`.
 
 **`Simulator`** (`simulator.ts`): Stateful, recursive, fixed-point evaluation.
 - `new Simulator(extraDefs[])` — loads all saved circuits on top of PRIMITIVES
@@ -63,25 +78,40 @@ CircuitDefinition {
 
 ### `@mcp/server` — Express REST API
 
-Single SQLite database at repo root `circuits.db`. The `definition` column stores the full `CircuitDefinition` as a JSON blob — the DB is a store, not a relational model.
+Single SQLite database (WAL mode). It lives at `circuits.db` in the repo root by default, or at `DB_PATH` if set. The `definition` column stores the full `CircuitDefinition` as a JSON blob — the DB is a store, not a relational model. `db.ts` runs idempotent migrations on startup; currently that adds the `owner_id` column.
+
+**Auth and ownership** (`src/auth.ts`):
+- Auth0 access tokens (RS256 JWTs) are verified by `express-oauth2-jwt-bearer`. Auth is enabled when `AUTH0_DOMAIN` and `AUTH0_AUDIENCE` are set. With `NODE_ENV=production` the server refuses to start without them.
+- When auth is **disabled** (local dev), every request acts as the admin user `local-dev`, and new circuits go straight into the starter library.
+- `optionalAuth` runs on every route. With no token the request is anonymous. A valid token sets `res.locals.user` (`{ id: sub, isAdmin }`). A present but invalid token gets a 401: it is deliberately not downgraded to anonymous, so misconfiguration shows up as an error.
+- `owner_id IS NULL` marks a **starter library** circuit: readable by everyone, writable only by admins (`ADMIN_USER_IDS`, a comma-separated list of Auth0 `sub`s). Any other circuit is visible to, and editable by, its owner only.
+- Every query filters by visibility (`VISIBLE` in `routes/circuits.ts`). Circuits a user can't see come back as 404 rather than 403, so their existence isn't leaked.
 
 **REST endpoints** (`/api/circuits`):
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/` | List all (id, name, description, timestamps) |
-| GET | `/:id` | Full row + parsed definition |
-| POST | `/` | Create — generates UUID, merges id+name into definition blob |
-| PUT | `/:id` | Replace definition blob |
-| DELETE | `/:id` | Delete |
-| POST | `/:id/simulate` | Load all saved defs, instantiate Simulator, run |
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/` | optional | List visible circuits (id, name, description, timestamps, `library`, `editable`) |
+| GET | `/:id` | optional | Full row + parsed definition, if visible |
+| POST | `/` | required | Create — generates UUID (overrides any `id` in the body), owned by the caller |
+| PUT | `/:id` | required + editable | Replace definition blob |
+| DELETE | `/:id` | required + editable | Delete |
+| POST | `/:id/simulate` | optional | Load visible defs, instantiate Simulator, run |
 
-`POST /:id/simulate` accepts `{ inputs, state? }` and returns `{ outputs, signals, state }`. The caller is responsible for threading `state` back on subsequent calls. The server loads **all** circuits from the DB on each request so composite circuits can resolve sub-circuit dependencies.
+`POST /:id/simulate` accepts `{ inputs, state? }` and returns `{ outputs, signals, state }`. `:id` may also be a primitive ID such as `NAND`. Simulation errors return 400. The caller is responsible for threading `state` back on subsequent calls. On each request the server loads every circuit **visible to the caller**, so composite circuits can resolve their sub-circuits. The Simulator is constructed with `maxEvaluations: 500_000`. Nested oscillating circuits cost up to 64^depth evaluations, and the server is single-threaded, so this cap stops one user from blocking everyone. The largest starter circuit needs ~22k. The simulator also rejects circuits that contain themselves.
+
+**Production serving**: if `packages/client/dist` exists, Express serves it, with an SPA fallback for non-`/api` paths. Production is one process on one origin, so CORS is enabled only outside production. See `deploy/DEPLOY.md` for the VPS setup: systemd unit, nginx + certbot, Auth0 dashboard steps, and backups.
 
 ### `@mcp/client` — React + Vite + React Flow
 
-Vite proxies `/api` to `:3001` so no CORS issues in dev.
+Vite proxies `/api` to `:3001` so no CORS issues in dev. All HTTP calls go through `request()` in `src/api.ts`. It attaches the bearer token and throws on non-2xx responses, using the server's `{ error }` message.
 
-**Data flow**: `App.tsx` owns all circuit state. It fetches the full list + all definitions on mount and after every mutation, then passes `allDefinitions` (a `Record<string, CircuitDefinition>` seeded with PRIMITIVES) down to child components.
+**Auth** (`src/auth.tsx`): `AppAuthProvider` wraps `Auth0Provider` (refresh tokens, localStorage cache) when `VITE_AUTH0_DOMAIN`, `VITE_AUTH0_CLIENT_ID` and `VITE_AUTH0_AUDIENCE` are set; see `packages/client/.env.example`. Vite bakes these into the bundle at build time. When they're unset it provides a fixed "Local dev" signed-in state, and `AccountButton` renders nothing. Components read auth through `useAppAuth()`, never `useAuth0()` directly, so the app also works without Auth0. The bridge calls `setTokenGetter` **during render**, not in an effect, because child effects (App's data loading) run before parent effects.
+
+**Guest vs. signed-in**: guests can browse and simulate the starter library and use the CPU Lab and Commodore UI. Creating or saving prompts sign-in. Saving a non-editable circuit (a library circuit, for a non-admin) creates a "(copy)" owned by the user. With auth enabled, the sidebar splits circuits into MY CIRCUITS and LIBRARY.
+
+**Views**: `App.tsx` switches on a `view` state (`"home" | "circuits" | "cpu" | "commodore"`). There is no router. `home` is a launcher. `circuits` is the circuit designer, with an `editor`/`simulator` tab pair. `cpu` renders `MicroCpuPanel`, and `commodore` renders `CommodorePanel`. The CPU and Commodore views are purely client-side: they use `@mcp/core` directly and never call the server.
+
+**Data flow**: `App.tsx` owns all circuit state. It fetches the visible list + all definitions once auth has finished loading, again whenever the signed-in state changes, and after every mutation, then passes `allDefinitions` (a `Record<string, CircuitDefinition>` seeded with PRIMITIVES) down to child components.
 
 **React Flow integration**: `CircuitEditor` maintains two parallel representations:
 - React Flow `nodes`/`edges` for the visual canvas

@@ -2,7 +2,12 @@ import { PRIMITIVES } from "./primitives.js";
 const MAX_ITERATIONS = 64;
 export class Simulator {
     library;
-    constructor(extraDefs = []) {
+    maxEvaluations;
+    evaluations = 0;
+    // Composite circuit ids on the current evaluation path, to reject circuits that contain themselves.
+    active = new Set();
+    constructor(extraDefs = [], options = {}) {
+        this.maxEvaluations = options.maxEvaluations ?? Infinity;
         this.library = new Map(Object.entries(PRIMITIVES));
         for (const def of extraDefs) {
             this.library.set(def.id, def);
@@ -23,12 +28,29 @@ export class Simulator {
         const def = this.library.get(defId);
         if (!def)
             throw new Error(`Unknown circuit: ${defId}`);
+        this.evaluations = 0;
+        this.active.clear();
         return this.evalWithState(def, inputs, initialState);
     }
     evalWithState(def, circuitInputs, state) {
+        if (++this.evaluations > this.maxEvaluations) {
+            throw new Error(`Simulation too large: exceeded ${this.maxEvaluations} evaluations`);
+        }
         if (def.components.length === 0) {
             return this.evalPrimitive(def.id, circuitInputs);
         }
+        if (this.active.has(def.id)) {
+            throw new Error(`Circuit "${def.name}" contains itself`);
+        }
+        this.active.add(def.id);
+        try {
+            return this.evalComposite(def, circuitInputs, state);
+        }
+        finally {
+            this.active.delete(def.id);
+        }
+    }
+    evalComposite(def, circuitInputs, state) {
         const inputSources = new Map();
         for (const wire of def.wires) {
             inputSources.set(`${wire.to.componentId}.${wire.to.pinName}`, wire.from);

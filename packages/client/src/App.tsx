@@ -7,8 +7,11 @@ import { SimulatorPanel } from "./components/SimulatorPanel";
 import { NewCircuitModal } from "./components/NewCircuitModal";
 import { MicroCpuPanel } from "./components/MicroCpuPanel";
 import { CommodorePanel } from "./components/CommodorePanel";
+import { AccountButton } from "./components/AccountButton";
+import { useAppAuth } from "./auth";
 
 function App() {
+  const auth = useAppAuth();
   const [circuits, setCircuits] = useState<CircuitSummary[]>([]);
   const [selected, setSelected] = useState<
     (CircuitDefinition & { name: string }) | null
@@ -35,9 +38,13 @@ function App() {
     setAllDefs(defs);
   };
 
+  // Reload whenever the signed-in user changes, since the visible circuits depend on who is asking.
   useEffect(() => {
-    loadCircuits();
-  }, []);
+    if (auth.isLoading) return;
+    loadCircuits().catch((e) => alert(`Could not load circuits: ${e.message}`));
+  }, [auth.isLoading, auth.isAuthenticated]);
+
+  const selectedSummary = circuits.find((c) => c.id === selected?.id);
 
   const handleSelect = async (id: string) => {
     const full = await api.getCircuit(id);
@@ -48,21 +55,24 @@ function App() {
 
   const handleSave = async (def: Omit<CircuitDefinition, "id">) => {
     if (!selected) return;
-    if (circuits.find((c) => c.id === selected.id)) {
-      await api.updateCircuit(selected.id, def.name ?? selected.name, def.description, {
-        ...def,
-        id: selected.id,
-      });
-    } else {
-      const res = await api.createCircuit(
-        def.name ?? "Untitled",
-        def.description,
-        def
-      );
-      const full = await api.getCircuit(res.id);
-      setSelected({ ...full.definition, name: full.name });
+    if (!auth.isAuthenticated) return auth.login();
+    try {
+      if (selectedSummary?.editable) {
+        await api.updateCircuit(selected.id, def.name ?? selected.name, def.description, {
+          ...def,
+          id: selected.id,
+        });
+      } else {
+        // Read-only (e.g. starter library) circuits are saved as the user's own copy.
+        const name = selectedSummary ? `${def.name ?? selected.name} (copy)` : def.name ?? "Untitled";
+        const res = await api.createCircuit(name, def.description, def);
+        const full = await api.getCircuit(res.id);
+        setSelected({ ...full.definition, name: full.name });
+      }
+      await loadCircuits();
+    } catch (e: any) {
+      alert(`Save failed: ${e.message}`);
     }
-    await loadCircuits();
   };
 
   const handleNew = async (
@@ -80,18 +90,91 @@ function App() {
       components: [],
       wires: [],
     };
-    const res = await api.createCircuit(name, description, newDef);
-    await loadCircuits();
-    await handleSelect(res.id);
+    try {
+      const res = await api.createCircuit(name, description, newDef);
+      await loadCircuits();
+      await handleSelect(res.id);
+    } catch (e: any) {
+      alert(`Could not create circuit: ${e.message}`);
+    }
+  };
+
+  const handleNewClick = () => {
+    if (!auth.isAuthenticated) return auth.login();
+    setShowNew(true);
   };
 
   const handleDelete = async (id: string) => {
     if (confirm("Delete this circuit?")) {
-      await api.deleteCircuit(id);
-      if (selected?.id === id) setSelected(null);
-      await loadCircuits();
+      try {
+        await api.deleteCircuit(id);
+        if (selected?.id === id) setSelected(null);
+        await loadCircuits();
+      } catch (e: any) {
+        alert(`Delete failed: ${e.message}`);
+      }
     }
   };
+
+  const sectionHeading = (label: string) => (
+    <div
+      style={{
+        fontSize: 11,
+        color: "#64748b",
+        margin: "10px 0 4px",
+        paddingLeft: 4,
+        letterSpacing: "0.05em",
+      }}
+    >
+      {label}
+    </div>
+  );
+
+  const renderCircuitRow = (c: CircuitSummary) => (
+    <div
+      key={c.id}
+      style={{
+        padding: "4px 8px",
+        borderRadius: 4,
+        fontSize: 12,
+        background:
+          selected?.id === c.id ? "#1e3a8a" : "transparent",
+        color: selected?.id === c.id ? "#fff" : "#94a3b8",
+        cursor: "pointer",
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+      }}
+      onClick={() => handleSelect(c.id)}
+    >
+      <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+        {c.name}
+      </span>
+      {c.editable && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            handleDelete(c.id);
+          }}
+          style={{
+            background: "none",
+            border: "none",
+            color: "#ef4444",
+            cursor: "pointer",
+            fontSize: 16,
+            lineHeight: 1,
+            padding: "0 2px",
+            flexShrink: 0,
+          }}
+        >
+          ×
+        </button>
+      )}
+    </div>
+  );
+
+  const libraryCircuits = circuits.filter((c) => c.library);
+  const myCircuits = circuits.filter((c) => !c.library);
 
   if (view === "home") {
     return (
@@ -115,7 +198,10 @@ function App() {
             marginBottom: 8,
           }}
         >
-          ModularCircuits+
+          Bits &amp; Gates
+        </div>
+        <div style={{ position: "absolute", top: 16, right: 16 }}>
+          <AccountButton />
         </div>
         <div style={{ fontSize: 13, color: "#64748b", marginBottom: 40 }}>
           Choose an application
@@ -282,7 +368,7 @@ function App() {
           }}
         >
           <div style={{ fontSize: 14, fontWeight: "bold", color: "#60a5fa" }}>
-            ModularCircuits+
+            Bits &amp; Gates
           </div>
           <button
             onClick={() => setView("home")}
@@ -299,9 +385,14 @@ function App() {
             ← Home
           </button>
         </div>
+        {auth.enabled && (
+          <div style={{ padding: "8px 12px", borderBottom: "1px solid #1e293b" }}>
+            <AccountButton />
+          </div>
+        )}
         <div style={{ padding: 8, overflowY: "auto", flex: 1 }}>
           <button
-            onClick={() => setShowNew(true)}
+            onClick={handleNewClick}
             style={{
               width: "100%",
               background: "#1d4ed8",
@@ -339,57 +430,24 @@ function App() {
               {id}
             </div>
           ))}
-          <div
-            style={{
-              fontSize: 11,
-              color: "#64748b",
-              margin: "10px 0 4px",
-              paddingLeft: 4,
-              letterSpacing: "0.05em",
-            }}
-          >
-            SAVED
-          </div>
-          {circuits.map((c) => (
-            <div
-              key={c.id}
-              style={{
-                padding: "4px 8px",
-                borderRadius: 4,
-                fontSize: 12,
-                background:
-                  selected?.id === c.id ? "#1e3a8a" : "transparent",
-                color: selected?.id === c.id ? "#fff" : "#94a3b8",
-                cursor: "pointer",
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-              }}
-              onClick={() => handleSelect(c.id)}
-            >
-              <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
-                {c.name}
-              </span>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleDelete(c.id);
-                }}
-                style={{
-                  background: "none",
-                  border: "none",
-                  color: "#ef4444",
-                  cursor: "pointer",
-                  fontSize: 16,
-                  lineHeight: 1,
-                  padding: "0 2px",
-                  flexShrink: 0,
-                }}
-              >
-                ×
-              </button>
-            </div>
-          ))}
+          {auth.enabled ? (
+            <>
+              {sectionHeading("MY CIRCUITS")}
+              {myCircuits.map(renderCircuitRow)}
+              {myCircuits.length === 0 && (
+                <div style={{ padding: "3px 8px", fontSize: 11, color: "#475569" }}>
+                  {auth.isAuthenticated ? "None yet" : "Sign in to save circuits"}
+                </div>
+              )}
+              {sectionHeading("LIBRARY")}
+              {libraryCircuits.map(renderCircuitRow)}
+            </>
+          ) : (
+            <>
+              {sectionHeading("SAVED")}
+              {circuits.map(renderCircuitRow)}
+            </>
+          )}
         </div>
       </div>
 
@@ -448,6 +506,13 @@ function App() {
                   savedCircuits={circuits}
                   allDefinitions={allDefs}
                   onSave={handleSave}
+                  saveLabel={
+                    !auth.isAuthenticated
+                      ? "Sign in to Save"
+                      : selectedSummary && !selectedSummary.editable
+                        ? "Save a Copy"
+                        : "Save Circuit"
+                  }
                 />
               ) : (
                 <SimulatorPanel circuit={selected} />

@@ -8,6 +8,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@auth0/auth0-react": "^2.28.2",
     "@mcp/core": "workspace:*",
     "@xyflow/react": "^12.3.1",
     "react": "^18.3.1",

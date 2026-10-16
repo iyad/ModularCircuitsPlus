@@ -2,3 +2,7 @@ node_modules
 packages/client/dist/
 packages/server/dist/
 CLAUDE.md
+circuits.db-wal
+circuits.db-shm
+.env
+.env.local

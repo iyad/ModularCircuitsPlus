@@ -30,6 +30,7 @@ interface Props {
   savedCircuits: CircuitSummary[];
   allDefinitions: Record<string, CircuitDefinition>;
   onSave: (def: Omit<CircuitDefinition, "id">) => void;
+  saveLabel?: string;
 }
 
 function defToFlow(def: CircuitDefinition, allDefs: Record<string, CircuitDefinition>) {
@@ -119,7 +120,7 @@ function flowToDefinition(
   return { components, wires, inputs, outputs, inputPosition, outputPosition };
 }
 
-export function CircuitEditor({ circuit, savedCircuits, allDefinitions, onSave }: Props) {
+export function CircuitEditor({ circuit, savedCircuits, allDefinitions, onSave, saveLabel = "Save Circuit" }: Props) {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [showJson, setShowJson] = useState(false);
@@ -240,7 +241,7 @@ export function CircuitEditor({ circuit, savedCircuits, allDefinitions, onSave }
             fontWeight: "bold",
           }}
         >
-          Save Circuit
+          {saveLabel}
         </button>
       </div>
       <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
